@@ -10,7 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(interfaces_ur5ik REQUIRED)
-
+find_package(example_interfaces REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclpy REQUIRED)
 
@@ -20,6 +20,7 @@ ament_target_dependencies(
   "rclcpp"
   "std_msgs"
   "interfaces_ur5ik"
+  "example_interfaces"
 )
 target_include_directories(target_client PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -32,6 +33,7 @@ ament_target_dependencies(
   "rclcpp"
   "std_msgs"
   "interfaces_ur5ik"
+  "example_interfaces"
 )
 target_include_directories(calc_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

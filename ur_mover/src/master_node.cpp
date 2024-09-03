@@ -56,10 +56,7 @@ class RobotMasterController : public rclcpp::Node
 /* 추가한 부분 끝*/
       move_group_ = new moveit::planning_interface::MoveGroupInterface(move_group_node, "ur_manipulator");
 /* 추가한 부분 시작 */
-      send_target(0.0, 0.6, 0.3, pi, 0.0, 0.0);
-      rclcpp::sleep_for(std::chrono::milliseconds(1000));
-
-      send_target(0.0, -0.6, 0.3, pi, 0.0, 0.0);
+send_request();
 /* 추가한 부분 끝*/
 
 #if camera
@@ -75,19 +72,59 @@ class RobotMasterController : public rclcpp::Node
     }
 
   private:
+    void send_request() {
+      auto request = std::make_shared<interfaces_ur5ik::srv::SixTheta::Request>();
+
+        while (!service_client_->wait_for_service(std::chrono::seconds(1))) {
+            if (!rclcpp::ok()) {
+                RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service. Exiting.");
+                return;
+            }
+            RCLCPP_INFO(this->get_logger(), "Waiting for service to be available...");
+        }
+
+        auto result = service_client_->async_send_request(request, std::bind(&RobotMasterController::handle_response, this, std::placeholders::_1));
+    }
+
+    void handle_response(rclcpp::Client<interfaces_ur5ik::srv::SixTheta>::SharedFuture future) {
+        auto response = future.get();
+
+        if (response->success) {
+            RCLCPP_INFO(this->get_logger(), "Received array: [%d, %d, %d, %d, %d, %d]",
+                        response->srv_theta[0], response->srv_theta[1], response->srv_theta[2],
+                        response->srv_theta[3], response->srv_theta[4], response->srv_theta[5]);
+
+
+
+          // 처리할 로직
+          theta[0] = response -> srv_theta[0];
+          theta[1] = response -> srv_theta[1];
+          theta[2] = response -> srv_theta[2];
+          theta[3] = response -> srv_theta[3];
+          theta[4] = response -> srv_theta[4];
+          theta[5] = response -> srv_theta[5];
+          RCLCPP_INFO(this->get_logger(), "response_callback theta : %f, %f, %f, %f, %f, %f",
+            theta[0], theta[1], theta[2],
+            theta[3], theta[4], theta[5]);
+
+        
+            // 로봇 동작 수행 
+ 
+        
+           this -> move_initial_position(theta[0], theta[1], theta[2], theta[3], theta[4], theta[5],"initial_position"); 
+
+             RCLCPP_INFO(this->get_logger(), "Action completed. Requesting next array...");
+
+            // 다음 명령 요청
+            send_request();
+         } else {
+             RCLCPP_INFO(this->get_logger(), "No more commands to process.");
+        }
+    }
     void send_target(double x, double y, double z,
       double roll, double pitch, double yaw)
     {
       auto request = std::make_shared<interfaces_ur5ik::srv::SixTheta::Request>();
-      request -> srv_target[0] = x; //0.0
-      request -> srv_target[1] = y; //0.6
-      request -> srv_target[2] = z; //0.3
-      request -> srv_target[3] = roll; //pi
-      request -> srv_target[4] = pitch; //0.0
-      request -> srv_target[5] = yaw; //0.0
-      RCLCPP_INFO(this -> get_logger(), "set target : %f, %f, %f, %f, %f, %f",
-           request -> srv_target[0], request -> srv_target[1], request -> srv_target[2],
-           request -> srv_target[3], request -> srv_target[4], request -> srv_target[5]);
 
       while (!service_client_ -> wait_for_service(1s))
       {
@@ -168,6 +205,7 @@ class RobotMasterController : public rclcpp::Node
       bool success = (move_group_->plan(my_plan) == moveit::planning_interface::MoveItErrorCode::SUCCESS);
       move_group_->execute(my_plan);
       move_group_->setStartStateToCurrentState();
+      send_request();
     }
 
     void topic_callback(const ur_custom_interfaces::msg::URCommand::SharedPtr msg)

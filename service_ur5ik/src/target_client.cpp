@@ -20,12 +20,7 @@ int main(int argc, char **argv)
         node -> create_client<interfaces_ur5ik::srv::SixTheta>("service_ik");
 
         auto request = std::make_shared<interfaces_ur5ik::srv::SixTheta::Request>();
-        request -> srv_target[0] = atof(argv[1]); //0.0
-        request -> srv_target[1] = atof(argv[2]); //0.6
-        request -> srv_target[2] = atof(argv[3]); //0.3
-        request -> srv_target[3] = atof(argv[4]); //pi
-        request -> srv_target[4] = atof(argv[5]); //0.0
-        request -> srv_target[5] = atof(argv[6]); //0.0
+
 
 
     while (!client -> wait_for_service(1s))

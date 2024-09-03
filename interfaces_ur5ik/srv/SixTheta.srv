@@ -1,3 +1,4 @@
-float64[6] srv_target
 ---
 float64[6] srv_theta
+bool success
+

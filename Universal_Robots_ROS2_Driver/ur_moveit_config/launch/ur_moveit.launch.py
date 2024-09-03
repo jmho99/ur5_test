@@ -72,7 +72,7 @@ def launch_setup(context, *args, **kwargs):
     visual_params = PathJoinSubstitution(
         [FindPackageShare(description_package), "config", ur_type, "visual_parameters.yaml"]
     )
- 
+
     robot_description_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),

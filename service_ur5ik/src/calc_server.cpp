@@ -22,7 +22,74 @@ double m_d6 = 0.2235;
 
 double T[4][4] = { 0 };
 
-#if 1
+struct customNode {
+    double data[6]; // 크기 6인  array
+    customNode* next;
+
+    customNode(double val[]) {
+        for (int i = 0; i < 6; i++) {
+            data[i] = val[i];
+        }
+        next = nullptr;
+    }
+};
+
+class LinkedList {
+public:
+    customNode* head;
+
+    LinkedList() : head(nullptr) {}
+
+    void append(double val[]) {
+        customNode* newNode = new customNode(val);
+        if (head == nullptr) {
+            head = newNode;
+        } else {
+            customNode* temp = head;
+            while (temp->next != nullptr) {
+                temp = temp->next;
+            }
+            temp->next = newNode;
+        }
+    }
+
+    customNode* getHead() {
+        return head;
+    }
+};
+
+
+class ArrayServiceServer : public rclcpp::Node {
+public:
+    ArrayServiceServer() : Node("array_service_server"), current_node(nullptr) {
+    service_client_ = this->create_service<interfaces_ur5ik::srv::SixTheta>("service_ik",std::bind(&ArrayServiceServer::handle_request, this, std::placeholders::_1, std::placeholders::_2));
+    RCLCPP_INFO(this->get_logger(), "Service client ur5 inverse kinematics");
+        // 링크드 리스트 초기화
+        double arr1[6] = {0.0, 0.3, 0.3, 3.14, 0.0, 0.0};
+        double arr2[6] = {0.05, 0.25, 0.3, 3.14, 0.0, 0.0};
+        double arr3[6] = {0.1, 0.3, 0.3, 3.14, 0.0, 0.0};
+	double arr4[6] = {0.1, 0.3, 0.3, 3.14, 0.0, 0.0};
+	double arr5[6] = {0.1, 0.4, 0.25, 3.14, 0.0, 0.0};
+	double arr6[6] = {0.1, 0.45, 0.2, 3.14, 0.0, 0.0};
+	double arr7[6] = {0.1, 0.5, 0.25, 3.14, 0.0, 0.0};
+	double arr8[6] = {0.1, 0.55, 0.3, 3.14, 0.0, 0.0};
+	
+        list_.append(arr1);
+        list_.append(arr2);
+        list_.append(arr3);
+        list_.append(arr4);
+        list_.append(arr5);
+        list_.append(arr6);
+        list_.append(arr7);
+        list_.append(arr8);
+        
+
+
+        current_node = list_.getHead();
+    }
+
+
+private:
 void set_trans(double x, double y, double z, double roll, double pitch, double yaw)
     {
         double XYZ[3][1] = { {x},{y},{z} };
@@ -119,66 +186,76 @@ void cal_theta()
 
         m_theta[3] = theta234 - m_theta[1] - m_theta[2];
     }
+    void handle_request(const std::shared_ptr<interfaces_ur5ik::srv::SixTheta::Request> request,     
+          std::shared_ptr<interfaces_ur5ik::srv::SixTheta::Response>       response) {
+    //auto x = request -> srv_target[0]; auto y = request -> srv_target[1]; auto z = request -> srv_target[2];
+    //auto roll = request -> srv_target[3]; auto pitch = request -> srv_target[4]; auto yaw = request -> srv_target[5];
 
-void print_theta()
-    {
-        //std::cout << m_sepe_get_topic[0] <<"; " << m_sepe_get_topic[1] << "; " << m_sepe_get_topic[2] << "; " << m_sepe_get_topic[3] << "; " << m_sepe_get_topic[4] << "; " << m_sepe_get_topic[5] << "\n";
-        //std::cout << m_theta[0] <<"; " << m_theta[1] << "; " << m_theta[2] << "; " << m_theta[3] << "; " << m_theta[4] << "; " << m_theta[5] << "\n";
+    //RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "\nx: %f" " \ny : %f" " \nz : %f"
+    //            " \nroll : %f" " \npitch : %f" " \nyaw : %f",
+    //			x, y, z, roll, pitch, yaw);
 
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "theta1 = %f", m_theta[0]);
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "theta2 = %f", m_theta[1]);
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "theta3 = %f", m_theta[2]);
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "theta4 = %f", m_theta[3]);
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "theta5 = %f", m_theta[4]);
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "theta6 = %f", m_theta[5]);
 
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), " %s", "-----------------");
+    
+
+
+
+        if (current_node != nullptr) {
+            RCLCPP_INFO(this->get_logger(), "Sending array: [%d, %d, %d, %d, %d, %d]",
+                        current_node->data[0], current_node->data[1], current_node->data[2],
+                        current_node->data[3], current_node->data[4], current_node->data[5]);
+		
+		double x = current_node->data[0];
+		double y = current_node->data[1];
+		double z = current_node->data[2];
+		double roll = current_node->data[3];
+		double pitch = current_node->data[4];
+		double yaw = current_node->data[5];
+		
+		set_trans(x,y,z,roll,pitch,yaw);
+		cal_theta();
+                
+                response -> srv_theta[0] = m_theta[0];
+                response -> srv_theta[1] = m_theta[1];
+                response -> srv_theta[2] = m_theta[2];
+                response -> srv_theta[3] = m_theta[3];
+                response -> srv_theta[4] = m_theta[4];
+                response -> srv_theta[5] = m_theta[5];		
+                
+                current_node = current_node->next;
+                
+                response ->success = true;
+		
+        } else {
+            RCLCPP_INFO(this->get_logger(), "All commands have been sent.");
+                response -> srv_theta[0] = 0;
+                response -> srv_theta[1] = 0;
+                response -> srv_theta[2] = 0;
+                response -> srv_theta[3] = 0;
+                response -> srv_theta[4] = 0;
+                response -> srv_theta[5] = 0;
+                
+                response ->success = false;
+        }
+    
     }
-#endif
-
-void set(const std::shared_ptr<interfaces_ur5ik::srv::SixTheta::Request> request,
-	std::shared_ptr<interfaces_ur5ik::srv::SixTheta::Response> response)
-{
-    auto x = request -> srv_target[0]; auto y = request -> srv_target[1]; auto z = request -> srv_target[2];
-    auto roll = request -> srv_target[3]; auto pitch = request -> srv_target[4]; auto yaw = request -> srv_target[5];
-
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "\nx: %f" " \ny : %f" " \nz : %f"
-                " \nroll : %f" " \npitch : %f" " \nyaw : %f",
-				x, y, z, roll, pitch, yaw);
-
-    set_trans(x,y,z,roll,pitch,yaw);
-    cal_theta();
-    print_theta();
-
-    response -> srv_theta[0] = m_theta[0];
-	response -> srv_theta[1] = m_theta[1];
-	response -> srv_theta[2] = m_theta[2];
-	response -> srv_theta[3] = m_theta[3];
-	response -> srv_theta[4] = m_theta[4];
-    response -> srv_theta[5] = m_theta[5];
-
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), " sending back response: [%f]", response -> srv_theta[0]);
-	RCLCPP_INFO(rclcpp::get_logger("rclcpp"), " sending back response: [%f]", response -> srv_theta[1]);
-	RCLCPP_INFO(rclcpp::get_logger("rclcpp"), " sending back response: [%f]", response -> srv_theta[2]);
-	RCLCPP_INFO(rclcpp::get_logger("rclcpp"), " sending back response: [%f]", response -> srv_theta[3]);
-	RCLCPP_INFO(rclcpp::get_logger("rclcpp"), " sending back response: [%f]", response -> srv_theta[4]);
-	RCLCPP_INFO(rclcpp::get_logger("rclcpp"), " sending back response: [%f]", response -> srv_theta[5]);
-}
-
-
-
+    rclcpp::Service<interfaces_ur5ik::srv::SixTheta>::SharedPtr service_client_;
+    rclcpp::CallbackGroup::SharedPtr client_cb_group_;
+    LinkedList list_;
+    customNode* current_node;
+};
 int main(int argc, char **argv)
 {
 	rclcpp::init(argc, argv);
 
 	std::shared_ptr<rclcpp::Node> node = rclcpp::Node::make_shared("calc_server");
 
-	rclcpp::Service<interfaces_ur5ik::srv::SixTheta>::SharedPtr server =
-		node -> create_service<interfaces_ur5ik::srv::SixTheta>("service_ik", &set);
+	//rclcpp::Service<interfaces_ur5ik::srv::SixTheta>::SharedPtr server =
+		//node -> create_service<interfaces_ur5ik::srv::SixTheta>("service_ik", &handle_request);
 
 	RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Ready to set target.");
 
-	rclcpp::spin(node);
+	rclcpp::spin(std::make_shared<ArrayServiceServer>());
 	rclcpp::shutdown();
 }
 
