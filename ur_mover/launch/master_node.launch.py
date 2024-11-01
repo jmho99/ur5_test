@@ -159,7 +159,7 @@ def generate_launch_description():
             robot_description_semantic,
             robot_description_kinematics,
         ],
-        arguments=arguments1,
+        # arguments=arguments1,
     )
 
     return launch.LaunchDescription([demo_node1])

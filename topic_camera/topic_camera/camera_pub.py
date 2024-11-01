@@ -1,132 +1,196 @@
-import cv2 as cv
-import numpy as np
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64, Bool
-import time
+from std_msgs.msg import Float64MultiArray, Bool
+from std_srvs.srv import Trigger
+import cv2 as cv
+import numpy as np
 import threading
-
-hsv = 0
-lower_blue1 = 0
-upper_blue1 = 0
-lower_blue2 = 0
-upper_blue2 = 0
-lower_blue3 = 0
-upper_blue3 = 0
-a = 0
-result = []
-
-def nothing(x):
-    pass
+import time
 
 class CameraPublisher(Node):
-    def __init__(self,capture):
+    def __init__(self, cap):
         super().__init__('camera_publisher')
+        self.cap = cap
 
-        # Publisher 생성 (QoS 설정 포함)
-        self.coordinate_publisher = self.create_publisher(
-            Float64,
-            'input_number',
-            10)
-        
-        self.completion_subscriber = self.create_subscription(
-            Bool,
-            'task_completed',
-            self.completion_callback,
-            10)
+        # Publisher 생성
+        self.coordinate_publisher = self.create_publisher(Float64MultiArray, 'selected_coordinates', 10)
+        # Subscriber 생성 (동작 완료 확인)
+        self.completion_subscriber = self.create_subscription(Bool, 'task_completed', self.completion_callback, 10)
         
         self.waiting_for_completion = False
-        # 시작 전 잠시 대기 (노드 초기화 시간 확보)
-        time.sleep(1.0)
 
-        cv.namedWindow('img_color')
-        cv.namedWindow('img_result')
-        cv.createTrackbar('threshold', 'img_result', 0, 255, nothing)
-        cv.setTrackbarPos('threshold', 'img_result', 30)
-
-        self.cap = capture
+        # 카메라 초기화 확인
         if not self.cap.isOpened():
-            self.get_logger().error("비디오 캡처를 열 수 없습니다.")
+            self.get_logger().error("Failed to open video stream")
             return
 
-        # 첫 번째 메시지 발행
-        self.send_next_number()
+        # 마우스 콜백 함수 설정
+        cv.namedWindow("Video Frame")
+        cv.setMouseCallback("Video Frame", self.mouse_callback)
 
-        # 상태 체크 타이머
-        self.create_timer(2.0, self.check_status)
+        # 타이머 생성 (비디오 처리)
+        self.timer = self.create_timer(0.1, self.process_video)
+        self.selected_point = None
+        self.hsv_ranges = None
+        self.previous_coordinates = []
 
-    def completion_callback(self, msg):
-        self.get_logger().info(f'완료 메시지 수신: {msg.data}')
-        self.waiting_for_completion = msg.data
+        # 트랙바 설정
+        cv.namedWindow('img_result')
+        cv.createTrackbar('threshold', 'img_result', 0, 255, lambda x: None)
+        cv.setTrackbarPos('threshold', 'img_result', 30)
+
+    def process_video(self):
+        ret, frame = self.cap.read()
+        if not ret or frame is None:
+            self.get_logger().warn("Empty frame captured")
+            return
         
+        # 화면 중앙 좌표 계산
+        height, width = frame.shape[:2]
+        center_x = width // 2
+        center_y = height // 2
 
-    def send_next_number(self):
-    
-        while(True):
-            result = []
-            #img_color = cv.imread('2.jpg')
-            ret,img_color = self.cap.read()
-            height, width = img_color.shape[:2]
-            img_color = cv.resize(img_color, (width, height), interpolation=cv.INTER_AREA)
+        # 선택한 지점에 대한 좌표 표시
+        if self.selected_point is not None:
+            x, y = self.selected_point
+            cv.circle(frame, (x, y), 5, (0, 255, 0), -1)
 
-            # 원본 영상을 HSV 영상으로 변환합니다.
-            img_hsv = cv.cvtColor(img_color, cv.COLOR_BGR2HSV)
-            img_gray = cv.cvtColor(img_color, cv.COLOR_BGR2GRAY)
-            a, binary_img = cv.threshold(img_gray,150,255,cv.THRESH_BINARY)
-            # 범위 값으로 HSV 이미지에서 마스크를 생성합니다.
-
-            img_mask1 = cv.inRange(img_hsv, lower_blue1, upper_blue1)
-            img_mask2 = cv.inRange(img_hsv, lower_blue2, upper_blue2)
-            img_mask3 = cv.inRange(img_hsv, lower_blue3, upper_blue3)
+        # HSV 범위 마스크 처리
+        if self.hsv_ranges is not None:
+            img_hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+            img_mask1 = cv.inRange(img_hsv, self.hsv_ranges['lower_blue1'], self.hsv_ranges['upper_blue1'])
+            img_mask2 = cv.inRange(img_hsv, self.hsv_ranges['lower_blue2'], self.hsv_ranges['upper_blue2'])
+            img_mask3 = cv.inRange(img_hsv, self.hsv_ranges['lower_blue3'], self.hsv_ranges['upper_blue3'])
             img_mask = img_mask1 | img_mask2 | img_mask3
 
-            kernel = np.ones((11,11), np.uint8)
+            kernel = np.ones((11, 11), np.uint8)
             img_mask = cv.morphologyEx(img_mask, cv.MORPH_OPEN, kernel)
             img_mask = cv.morphologyEx(img_mask, cv.MORPH_CLOSE, kernel)
 
-            # 마스크 이미지로 원본 이미지에서 범위값에 해당되는 영상 부분을 획득합니다.
-            img_result = cv.bitwise_and(img_color, img_color, mask=img_mask)
-
-
-            numOfLabels, img_label, stats, centroids = cv.connectedComponentsWithStats(img_mask)
+            num_labels, labels, stats, centroids = cv.connectedComponentsWithStats(img_mask)
+            coordinates = []
 
             for idx, centroid in enumerate(centroids):
                 if stats[idx][0] == 0 and stats[idx][1] == 0:
                     continue
-
                 if np.any(np.isnan(centroid)):
                     continue
 
-                x,y,width,height,area = stats[idx]
-                centerX,centerY = int(centroid[0]), int(centroid[1])
-                print(centerX, centerY)
-                msg = float()
-                msg.data = centerX
+                x, y = int(centroid[0]), int(centroid[1])
+                area = stats[idx, cv.CC_STAT_AREA]
+
+                if area > 50:  # 임계값보다 큰 객체만 고려
+                    coordinates.append((x, y))
+                    cv.circle(frame, (x, y), 5, (0, 255, 0), -1)
+
+            # 좌표가 이전과 +-2 범위 내에서 동일한 경우 publish하지 않음
+            if not self.are_coordinates_similar(coordinates, self.previous_coordinates):
+                self.coordinates_to_send = coordinates
+                self.previous_coordinates = coordinates
+                self.get_logger().info(f'Total detected points: {coordinates}')
+                self.get_logger().info(f'Total detected points: {len(coordinates)}')
+                self.current_index = 0
+
+            # 작업 완료 대기 중이 아니고 보낼 좌표가 있으면 좌표 전송
+            if not self.waiting_for_completion and self.coordinates_to_send and self.current_index <= len(self.coordinates_to_send):
+                coordinate_pair = self.coordinates_to_send[self.current_index]
+                x, y = coordinate_pair
+                index = self.current_index + 1
+                # 화면 중앙으로부터의 거리 계산 후 전송
+                x_transformed = (x - center_x) / 1000.0
+                y_transformed = (y - center_y) / 1000.0
+                self.get_logger().info(f'Sending Point {index}/{len(self.previous_coordinates)}: ({x_transformed}, {y_transformed})')
+                msg = Float64MultiArray()
+                msg.data = [float(x_transformed), float(y_transformed)]
                 self.coordinate_publisher.publish(msg)
-                result.append([idx, centerX, centerY])
+                self.waiting_for_completion = True
+                self.current_index += 1
 
+            # 모든 좌표를 보낸 후 대기
+            if self.current_index >= len(self.coordinates_to_send):
+                self.get_logger().info('All coordinates sent, waiting for completion')
 
-                if area > 50:
-                    cv.circle(img_color, (centerX, centerY), 10, (0,0,255), 10)
-                    cv.rectangle(img_color, (x,y), (x+width,y+height), (0,0,255))
+            img_result = cv.bitwise_and(frame, frame, mask=img_mask)
+            cv.imshow('img_result', img_result)
+            
+        frame_resized = cv.resize(frame, (width, height), interpolation=cv.INTER_AREA)
+        cv.imshow("Video Frame", frame_resized)
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            rclpy.shutdown()
 
-            cv.imshow('img_color', img_color)
-        #cv.imshow('img_mask', img_mask)
-        #cv.imshow('img_result', img_result)
+    def are_coordinates_similar(self, current, previous):
+        if len(current) != len(previous):
+            return False
+        for (x1, y1), (x2, y2) in zip(current, previous):
+            if abs(x1 - x2) > 2 or abs(y1 - y2) > 2:
+                return False
+        return True
+
+    def mouse_callback(self, event, x, y, flags, param):
+        if event == cv.EVENT_LBUTTONDOWN:
+            self.selected_point = (x, y)
+            frame = self.cap.read()[1]
+            if frame is not None:
+                color = frame[y, x]
+                one_pixel = np.uint8([[color]])
+                hsv = cv.cvtColor(one_pixel, cv.COLOR_BGR2HSV)[0][0]
+                threshold = cv.getTrackbarPos('threshold', 'img_result')
+
+                if hsv[0] < 10:
+                    lower_blue1 = np.array([hsv[0] - 10 + 180, threshold, threshold])
+                    upper_blue1 = np.array([180, 255, 255])
+                    lower_blue2 = np.array([0, threshold, threshold])
+                    upper_blue2 = np.array([hsv[0], 255, 255])
+                    lower_blue3 = np.array([hsv[0], threshold, threshold])
+                    upper_blue3 = np.array([hsv[0] + 10, 255, 255])
+                elif hsv[0] > 170:
+                    lower_blue1 = np.array([hsv[0], threshold, threshold])
+                    upper_blue1 = np.array([180, 255, 255])
+                    lower_blue2 = np.array([0, threshold, threshold])
+                    upper_blue2 = np.array([hsv[0] + 10 - 180, 255, 255])
+                    lower_blue3 = np.array([hsv[0] - 10, threshold, threshold])
+                    upper_blue3 = np.array([hsv[0], 255, 255])
+                else:
+                    lower_blue1 = np.array([hsv[0], threshold, threshold])
+                    upper_blue1 = np.array([hsv[0] + 10, 255, 255])
+                    lower_blue2 = np.array([hsv[0] - 10, threshold, threshold])
+                    upper_blue2 = np.array([hsv[0], 255, 255])
+                    lower_blue3 = np.array([hsv[0] - 10, threshold, threshold])
+                    upper_blue3 = np.array([hsv[0], 255, 255])
+
+                self.hsv_ranges = {
+                    'lower_blue1': lower_blue1,
+                    'upper_blue1': upper_blue1,
+                    'lower_blue2': lower_blue2,
+                    'upper_blue2': upper_blue2,
+                    'lower_blue3': lower_blue3,
+                    'upper_blue3': upper_blue3
+                }
+
+    def completion_callback(self, msg):
+        if msg.data:
+            self.get_logger().info('Task completed, ready to send next coordinates')
+            self.waiting_for_completion = False
+
+    def destroy_node(self):
+        super().destroy_node()
+        if self.cap.isOpened():
+            self.cap.release()
+        cv.destroyAllWindows()
+
 
 def main(args=None):
     rclpy.init(args=args)
-    cap = cv.VideoCapture("rtmp://192.168.0.163:1935/live")
-    publisher = CameraPublisher(cap)
+    cap = cv.VideoCapture('rtmp://192.168.0.163:1935/live/stream')  # 0번 카메라 사용
+    node = CameraPublisher(cap)
     try:
-        
-        rclpy.spin(publisher)
-    except Exception as e:
-        print(f"에러 발생: {e}")
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
-        if 'publisher' in locals():
-            publisher.destroy_node()
+        node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
